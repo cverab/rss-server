@@ -4,41 +4,62 @@ import RSSParser from 'rss-parser';
 import feedUrl from './feeds.js';
 
 const parser = new RSSParser();
-let articles = [];
+let articlesCache = [];
+let lastFetchTime = 0;
+const cacheDuration = 10 * 60 * 1000; // 10 minutos
 
-const parse = async urls => {
+const fetchFeeds = async () => {
+  let newArticles = [];
+  for (let url of feedUrl) {
+    try {
+      const feed = await Promise.race([
+        parser.parseURL(url),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Tiempo de espera excedido')), 10000)
+        )
+      ]);
+      feed.items.forEach(item => {
+        newArticles.push({ title: feed.title, item });
+      });
+    } catch (error) {
+      console.error(`Hubo un error al procesar la URL ${url}: ${error.message}`);
+    }
+  }
+  return newArticles;
+};
+
+const updateCache = async () => {
   try {
-    for (let url of urls) {
-      try {
-        const feed = await Promise.race([
-          parser.parseURL(url),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Tiempo de espera excedido')), 5000)
-          )
-        ]);
-        feed.items.forEach(item => {
-          articles.push({ title: feed.title, item });
-        });
-      } catch (error) {
-        console.error(`Hubo un error al procesar la URL ${url}: ${error.message}`);
-      }
-    };
+    articlesCache = await fetchFeeds();
+    lastFetchTime = Date.now();
   } catch (error) {
-    console.error(`Hubo un error general: ${error.message}`);
+    console.error(`Error al actualizar la caché: ${error.message}`);
   }
 };
 
-parse(feedUrl);
+// Actualizar la caché al inicio y luego cada 10 minutos
+updateCache();
+setInterval(updateCache, cacheDuration);
 
-let app = express();
-app.use(cors());
-app.get('/', async (req, res) => {
-  articles = [];
-  await parse(feedUrl);
-  res.send(articles);
+const app = express();
+const port = process.env.PORT || 4000;
+app.use(cors({ origin: "*", }));
+
+app.get('/', (req, res) => {
+  // Verificar si la caché está actualizada
+  if (Date.now() - lastFetchTime > cacheDuration) {
+    updateCache().then(() => {
+      res.send(articlesCache);
+    }).catch(error => {
+      res.status(500).send({ error: 'Error al actualizar la caché', details: error.message });
+    });
+  } else {
+    res.send(articlesCache);
+  }
 });
-const server = app.listen('4000', () => {
-  console.log('App is listening at port 4000');
+
+const server = app.listen(port, () => {
+  console.log(`App is listening at port ${port}`);
 });
 
 export default server;
