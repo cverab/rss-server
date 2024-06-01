@@ -6,7 +6,7 @@ import feedUrl from './feeds.js';
 const parser = new RSSParser();
 let articlesCache = [];
 let lastFetchTime = 0;
-const cacheDuration = 10 * 60 * 1000; // 10 minutos
+const cacheDuration = 10 * 60 * 1000;
 
 const fetchFeeds = async () => {
   let newArticles = [];
@@ -15,7 +15,7 @@ const fetchFeeds = async () => {
       const feed = await Promise.race([
         parser.parseURL(url),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Tiempo de espera excedido')), 10000)
+          setTimeout(() => reject(new Error('Tiempo de espera excedido')), 5000)
         )
       ]);
       feed.items.forEach(item => {
@@ -37,7 +37,6 @@ const updateCache = async () => {
   }
 };
 
-// Actualizar la caché al inicio y luego cada 10 minutos
 updateCache();
 setInterval(updateCache, cacheDuration);
 
@@ -46,12 +45,11 @@ const port = process.env.PORT || 4000;
 app.use(cors({ origin: "*", }));
 
 app.get('/', (req, res) => {
-  // Verificar si la caché está actualizada
   if (Date.now() - lastFetchTime > cacheDuration) {
     updateCache().then(() => {
       res.send(articlesCache);
     }).catch(error => {
-      res.status(500).send({ error: 'Error al actualizar la caché', details: error.message });
+      res.status(500).send({ error: 'Error updating caché', details: error.message });
     });
   } else {
     res.send(articlesCache);
